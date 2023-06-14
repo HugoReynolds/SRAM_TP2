@@ -1,0 +1,4 @@
+fonte:
+	gcc fonte.c -o fonte -lm
+ficheiro texto:
+	cat > nome.txt
