@@ -10,148 +10,225 @@
 #define SERVER_IP "127.0.0.1"
 #define SERVER_PORT 8888
 #define CONFIG_FILE "fonteconfig.txt"
-#define MAX_LINE_LENGTH 100
-#define BUFFER_SIZE 1024
+#define MAX_LINE_LENGTH 1000
+#define MAX_BUFFER_SIZE 1024
 
 #define PI 3.14159265359
 
 // Definição da estrutura de dados
 
 typedef struct {
-    int D;  // Identificador da fonte
-    int i;  // ?
+    char D[100];  // Identificador da fonte
+    int i;  // index
+    int Vi; // Informação
     int P;  // Período 
     int F;  // Frequência
     int N;  // Número de amostras
     int M;  // Máximo??
-    int Vi; // Informação
+    
 } FonteInformacao;
 
-//void parseConfigFile(const char* filename, char* serverIP, int* serverPort, FonteInformacao fonte) {
-//    FILE* file = fopen(filename, "r");
-//    if (file == NULL) {
-//        printf("Erro ao abrir o arquivo de configuração.\n");
-//        exit(EXIT_FAILURE);
-//    }
 
-    // Leitura do SERVER_IP
-//    fgets(serverIP, MAX_LINE_LENGTH, file);
-//    serverIP[strcspn(serverIP, "\n")] = '\0';
-    //printf("%s", &serverIP);
 
-    // Leitura do SERVER_PORT
-//    char serverPortStr[MAX_LINE_LENGTH];
-//    fgets(serverPortStr, MAX_LINE_LENGTH, file);
-//    *serverPort = atoi(serverPortStr);
-    //printf("%d", &serverPort);
-    // Leitura dos valores da FonteInformacao
+void* fonteThread(void* arg) {
+    FonteInformacao* fonte = (FonteInformacao*)arg;
+    unsigned short Fa = fonte->F * fonte->N;
+    unsigned int Vi = 0;
+    char buffer[MAX_BUFFER_SIZE];
+    fonte->P = 1/fonte->F;
+    char serverIP[MAX_LINE_LENGTH] = "127.0.0.1";
+    int serverPort = 8888;
 
-//    char line[MAX_LINE_LENGTH];
-//    fgets(line, MAX_LINE_LENGTH, file);
-//    fonte.D = atoi(line);
-//
-//    fgets(line, MAX_LINE_LENGTH, file);
-//    fonte.i = atoi(line);
-//
-//    fgets(line, MAX_LINE_LENGTH, file);
-//    fonte.Vi = atoi(line);
-//
-//    fgets(line, MAX_LINE_LENGTH, file);
-//    fonte.P = atoi(line);
-//
-//    fgets(line, MAX_LINE_LENGTH, file);
-//    fonte.F = atoi(line);
-//
-//    fgets(line, MAX_LINE_LENGTH, file);
-//    fonte.N = atoi(line);
-//
-//    fgets(line, MAX_LINE_LENGTH, file);
-//    fonte.M = atoi(line);
-//
-//    fclose(file);
-//}
+
+    
+    int socket_fonte = socket(AF_INET, SOCK_DGRAM, 0);    
+    if (socket_fonte < 0) {
+        perror("Erro ao criar o socket");
+        return NULL;
+    }
+
+    struct sockaddr_in server_address;
+    printf("Connecting %d\n", serverPort);
+    memset(&server_address, 0, sizeof(server_address));
+    server_address.sin_family = AF_INET;
+    server_address.sin_addr.s_addr = inet_addr(serverIP);
+    server_address.sin_port = htons(serverPort);
+
+    for (int i = 1; i <= Fa; i++) {
+        Vi = 1 + (1 + sin(2 * PI * i / fonte->N)) * 30;
+        printf("Vi: %d\n", Vi);
+
+        sprintf(buffer, "%d %d %d %d %d %s", i, Vi, fonte->F, fonte->N, fonte->P, fonte->D);
+        sendto(socket_fonte, buffer, strlen(buffer), 0, (struct sockaddr*)&server_address, sizeof(server_address));
+
+        // Envie os dados para o servidor aqui usando o socket_fonte
+
+        printf("Enviado: %s\n", buffer);
+
+        sleep(fonte->P);
+    }
+
+    return NULL;
+}
+
 
 
 int main() {
+
+    int socket_fonte;
+    struct sockaddr_in sm_address;
     char serverIP[MAX_LINE_LENGTH];
     int serverPort;
+
     FonteInformacao fonte;
+    unsigned short Fa = 0;
+    unsigned int Vi = 0;
 
-    //parseConfigFile(CONFIG_FILE, serverIP, &serverPort, fonte);
 
-    int sockfd;
-    struct sockaddr_in serverAddr;
-    char buffer[BUFFER_SIZE];
 
-    // Criação do socket UDP
-    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sockfd < 0) {
-        perror("Erro na criação do socket");
-        exit(1);
+
+    FILE *file_config = fopen("fonteconfig.txt", "r");
+
+    if (file_config == NULL) {
+        printf("Erro ao abrir o arquivo.\n");
+        return 1;
     }
 
-    memset(&serverAddr, 0, sizeof(serverAddr));
+    int num_fontes = 0;
+    char line[MAX_LINE_LENGTH];
 
-    // Configuração do endereço do servidor
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_port = htons(SERVER_PORT);
-    if (inet_pton(AF_INET, SERVER_IP, &serverAddr.sin_addr) <= 0) {
-        perror("Erro na configuração do endereço do servidor");
-        exit(1);
+    while (fgets(line, sizeof(line), file_config) != NULL) {
+        if (strstr(line, "nova_fonte") != NULL) {
+            
+            num_fontes++;
+        }
     }
 
-    memset(&fonte, 0, sizeof(fonte));
-    fonte.D = 1;
-    fonte.F = 2;
-    fonte.N = 7;
-    fonte.M = 50;
-    fonte.Vi = 0;
-    int ativo = 1;
-    int Fa = fonte.N * fonte.F;
-    double x; 
+    printf("Número de fontes lido: %d\n", num_fontes);
+
+
+    FonteInformacao* fontes = (FonteInformacao*)malloc(num_fontes * sizeof(FonteInformacao));
+
+    if (fontes == NULL) {
+        printf("Erro ao alocar memória.\n");
+        fclose(file_config);
+        return 1;
+    }
+
+    rewind(file_config);
+
+
+
+    // Ler as configurações para cada fonte
+    for (int i = 0; i < num_fontes; i++) {
+    // Verificar se a linha corresponde a "fonteinfo"
+    while (fgets(line, sizeof(line), file_config) != NULL) {
+        if (strstr(line, "nova_fonte") != NULL) {
+            break;
+        }
+    }
+
+    // Ler o identificador da fonte
+    fscanf(file_config, "%s", fontes[i].D);
+
+    // Ler as outras configurações da fonte
+    fscanf(file_config, "%d", &fontes[i].F);
+    fscanf(file_config, "%d", &fontes[i].N);
+    fscanf(file_config, "%d", &fontes[i].M);
+    fscanf(file_config, "%s", serverIP);
+    fscanf(file_config, "%d", &serverPort);
+
+    //printf("Nome da Fonte: %s\n", fontes[i].D);
+    //printf("N: %d\n", fontes[i].M);
+    //printf("Server IP: %s\n", serverIP);
+    //printf("Server_Port: %d\n", serverPort);
+
+    // Resto do código...
+
+    fgetc(file_config);   // Consumir o caractere de nova linha após cada configuração de fonte
+}
+
+    fclose(file_config);
+
+    /*
+    fscanf(file_config, "%s", fonte.D);
+    fscanf(file_config, "%d", &fonte.F);
+    fscanf(file_config, "%d", &fonte.N);
+    fscanf(file_config, "%d", &fonte.M);
+    fscanf(file_config, "%s", serverIP);
+    fscanf(file_config, "%d", &serverPort);
+
+    printf("Server IP: %s\n", serverIP);
+
+    fclose(file_config);
+    */
+
+
+
+    socket_fonte = socket(AF_INET, SOCK_DGRAM, 0);    
+    if (socket_fonte < 0) {
+        perror("Erro ao criar o socket");
+        return 1;
+    }
+
+    printf("Connecting %d\n", serverPort);
+    memset(&sm_address, 0, sizeof(sm_address));
+    sm_address.sin_family = AF_INET;
+    sm_address.sin_addr.s_addr = inet_addr(serverIP);
+    sm_address.sin_port = htons(serverPort);
+
+
     
-    while(ativo == 1){
-        for (int i = 1; i <= Fa; i++) {
-        x = (1 + (1 + sin(2 * PI * i / fonte.N)) * 30);
-        fonte.i = i;
-        fonte.Vi = (int)x;
-        
-        //int tempint = 0;
 
-        /* Send the string to the server */
-        //tempint = sendto(sockfd, (FonteInformacao*)&fonte, (1024+sizeof(fonte)), 0, (struct sockaddr *)&serverAddr, sizeof(serverAddr)); 
+    
 
-        //if (tempint == -1 ) {
+    // Cria um array de threads para as fontes
+    pthread_t threads[num_fontes];
 
-        //       printf("Sent struct size: %d\n", tempint);
-        //       DieWithError("sendto() sent a different number of bytes than expected\n");
-        //}
-
-        if (sendto(sockfd, (FonteInformacao*)&fonte, (1024+sizeof(fonte)), 0, (struct sockaddr *)&serverAddr, sizeof(serverAddr)) < 0) {
-            perror("Erro no envio da mensagem");
-            exit(1);
-        }
-        
-        for(int j = 0; j < fonte.Vi; j++){
-            printf("_");
-        }
-        printf("\n");
-        }   
+    // Crie e execute as threads para cada fonte
+    for (int i = 0; i < num_fontes; i++) {
+        pthread_create(&threads[i], NULL, fonteThread, &fontes[i]);
     }
 
-    printf("Digite uma mensagem: ");
-    fgets(buffer, BUFFER_SIZE, stdin);
+    // Aguarde todas as threads terminarem
+    for (int i = 0; i < num_fontes; i++) {
+        pthread_join(threads[i], NULL);
+    }
 
-    // Envia a mensagem para o servidor
-    //if (sendto(sockfd, buffer, strlen(buffer), 0, (struct sockaddr *)&serverAddr, sizeof(serverAddr)) < 0) {
-    //    perror("Erro no envio da mensagem");
-    //    exit(1);
-    // }
+    // Resto do código...
 
-    printf("Mensagem enviada.\n");
+    free(fontes);  // Libere a memória alocada para as fontes
 
-    // Fecha o socket
-    close(sockfd);
+    
+
+    /*
+
+    int i = 0;
+
+    Fa = fonte.F * fonte.N;
+    fonte.P = 1 / fonte.F;
+    char buffer[MAX_BUFFER_SIZE];
+
+    for(i = 1; i <= Fa; i++){
+        Vi = 1 + (1 + sin(2 * PI * i/fonte.N)) * 30;
+        printf("Vi: %d\n",Vi);
+        
+        sprintf(buffer, "%d %d %d %d %d %s", i, Vi, fonte.F, fonte.N, fonte.P, fonte.D);
+
+        sendto(socket_fonte, buffer, strlen(buffer), 0, (struct sockaddr*)&sm_address, sizeof(sm_address));
+        printf("Enviado: %s\n", buffer);
+
+        sleep(fonte.P);
+    }
+
+    */
+
+     close(socket_fonte);
+    
+
+
+
+
 
     return 0;
 }
