@@ -35,7 +35,8 @@ void* fonteThread(void* arg) {
     unsigned short Fa = fonte->F * fonte->N;
     unsigned int Vi = 0;
     char buffer[MAX_BUFFER_SIZE];
-    fonte->P = 1/fonte->F;
+    int periodo = 1/fonte->F;
+    fonte->P = 0;
     char serverIP[MAX_LINE_LENGTH] = "127.0.0.1";
     int serverPort = 8888;
 
@@ -54,18 +55,36 @@ void* fonteThread(void* arg) {
     server_address.sin_addr.s_addr = inet_addr(serverIP);
     server_address.sin_port = htons(serverPort);
 
-    for (int i = 1; i <= Fa; i++) {
-        Vi = 1 + (1 + sin(2 * PI * i / fonte->N)) * 30;
-        printf("Vi: %d\n", Vi);
+    for (int i = 0; i <= Fa; i++) {
 
-        sprintf(buffer, "%d %d %d %d %d %s", i, Vi, fonte->F, fonte->N, fonte->P, fonte->D);
-        sendto(socket_fonte, buffer, strlen(buffer), 0, (struct sockaddr*)&server_address, sizeof(server_address));
 
-        // Envie os dados para o servidor aqui usando o socket_fonte
+        if(fonte->P <= fonte->M){
+            Vi = 1 + (1 + sin(2 * PI * i / fonte->N)) * 30;
+            printf("Vi: %d\n", Vi);
 
-        printf("Enviado: %s\n", buffer);
+            sprintf(buffer, "%d %d %d %d %d %d %s",fonte->M, i, Vi, fonte->F, fonte->N, fonte->P, fonte->D);
+            sendto(socket_fonte, buffer, strlen(buffer), 0, (struct sockaddr*)&server_address, sizeof(server_address));
 
-        sleep(fonte->P);
+            // Envie os dados para o servidor aqui usando o socket_fonte
+
+            printf("Enviado: %s\n", buffer);
+
+            sleep(periodo);
+        }else {
+            fonte->P=1;
+            Vi = 1 + (1 + sin(2 * PI * i / fonte->N)) * 30;
+            printf("Vi: %d\n", Vi);
+
+            sprintf(buffer, "%d %d %d %d %d %d %s",fonte->M, i, Vi, fonte->F, fonte->N, fonte->P, fonte->D);
+            sendto(socket_fonte, buffer, strlen(buffer), 0, (struct sockaddr*)&server_address, sizeof(server_address));
+
+            // Envie os dados para o servidor aqui usando o socket_fonte
+
+            printf("Enviado: %s\n", buffer);
+
+            sleep(periodo);
+        }
+        fonte->P++;
     }
 
     return NULL;
@@ -138,31 +157,11 @@ int main() {
     fscanf(file_config, "%s", serverIP);
     fscanf(file_config, "%d", &serverPort);
 
-    //printf("Nome da Fonte: %s\n", fontes[i].D);
-    //printf("N: %d\n", fontes[i].M);
-    //printf("Server IP: %s\n", serverIP);
-    //printf("Server_Port: %d\n", serverPort);
-
-    // Resto do código...
 
     fgetc(file_config);   // Consumir o caractere de nova linha após cada configuração de fonte
 }
 
     fclose(file_config);
-
-    /*
-    fscanf(file_config, "%s", fonte.D);
-    fscanf(file_config, "%d", &fonte.F);
-    fscanf(file_config, "%d", &fonte.N);
-    fscanf(file_config, "%d", &fonte.M);
-    fscanf(file_config, "%s", serverIP);
-    fscanf(file_config, "%d", &serverPort);
-
-    printf("Server IP: %s\n", serverIP);
-
-    fclose(file_config);
-    */
-
 
 
     socket_fonte = socket(AF_INET, SOCK_DGRAM, 0);    
@@ -176,11 +175,6 @@ int main() {
     sm_address.sin_family = AF_INET;
     sm_address.sin_addr.s_addr = inet_addr(serverIP);
     sm_address.sin_port = htons(serverPort);
-
-
-    
-
-    
 
     // Cria um array de threads para as fontes
     pthread_t threads[num_fontes];
@@ -198,37 +192,8 @@ int main() {
     // Resto do código...
 
     free(fontes);  // Libere a memória alocada para as fontes
-
+    close(socket_fonte);
     
-
-    /*
-
-    int i = 0;
-
-    Fa = fonte.F * fonte.N;
-    fonte.P = 1 / fonte.F;
-    char buffer[MAX_BUFFER_SIZE];
-
-    for(i = 1; i <= Fa; i++){
-        Vi = 1 + (1 + sin(2 * PI * i/fonte.N)) * 30;
-        printf("Vi: %d\n",Vi);
-        
-        sprintf(buffer, "%d %d %d %d %d %s", i, Vi, fonte.F, fonte.N, fonte.P, fonte.D);
-
-        sendto(socket_fonte, buffer, strlen(buffer), 0, (struct sockaddr*)&sm_address, sizeof(sm_address));
-        printf("Enviado: %s\n", buffer);
-
-        sleep(fonte.P);
-    }
-
-    */
-
-     close(socket_fonte);
-    
-
-
-
-
 
     return 0;
 }
