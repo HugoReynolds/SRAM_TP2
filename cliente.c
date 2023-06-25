@@ -19,12 +19,81 @@ typedef struct {
     int count;
 } FonteInformacaoList;
 
-void printFonteInformacaoList(FonteInformacaoList* list) {
-    printf("Fontes disponíveis:\n");
-    for (int i = 0; i < list->count; i++) {
-        printf("i: %d ", i);
-        printf("- %s\n", list->fonts[i].D);
+void send_Mensage_to_server(char *mensage, int soctfd,struct sockaddr_in serverAddr){
+    char buffer[BUFFER_SIZE];
+    
+    strncpy(buffer, mensage, sizeof(buffer));
+    ssize_t numBytes = sendto(soctfd, buffer, strlen(buffer), 0, (struct sockaddr *)&serverAddr, sizeof(serverAddr));
+    if (numBytes < 0) {
+    perror("Erro no envio da mensagem para o servidor");
+    exit(1);
     }
+    memset(buffer, 0, sizeof(buffer));
+}
+
+
+
+
+
+
+
+void printFonteInformacaoList(FonteInformacaoList* list) {
+
+    int option1 = 0;
+    int option2 = 0;
+
+    while (option1 != 2) {
+        printf("MENU:\n");
+        printf("1. Lista de Fontes\n");
+        printf("2. Sair\n");
+        printf("Escolha uma opção: ");
+        scanf("%d", &option1);
+
+        switch (option1) {
+            case 1:
+                printf("Fontes disponíveis:\n");
+                for (int i = 0; i < list->count; i++) {
+                    printf("%d - %s\n", i, list->fonts[i].D);
+                }
+                printf("\n");
+
+                printf("SUBMENU:\n");
+                printf("1. Info\n");
+                printf("2. Play\n");
+                printf("3. Stop\n");
+                printf("Escolha uma opção: ");
+                scanf("%d", &option2);
+
+                switch (option2) {
+                    case 1:
+                        // Lógica para a opção "Info"
+                        printf("Opção 'Info' selecionada\n");
+                        break;
+                    case 2:
+                        // Lógica para a opção "Play"
+                        printf("Opção 'Play' selecionada\n");
+                        break;
+                    case 3:
+                        // Lógica para a opção "Stop"
+                        printf("Opção 'Stop' selecionada\n");
+                        break;
+                    default:
+                        printf("Opção inválida\n");
+                        break;
+                }
+
+                break;
+            case 2:
+                printf("Opção 'Sair' selecionada. Saindo...\n");
+                break;
+            default:
+                printf("Opção inválida\n");
+                break;
+        }
+    }
+
+
+
 }
 
 
@@ -34,6 +103,7 @@ int main() {
     struct sockaddr_in serverAddr;
     char buffer[BUFFER_SIZE];
     FonteInformacaoList fonte_informacao_list;
+    int option, option2;
 
     // Criação do socket UDP para o cliente
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
@@ -51,6 +121,107 @@ int main() {
         perror("Erro na configuração do endereço do servidor");
         exit(1);
     }
+
+    printf("MENU:\n");
+    printf("1. Lista de Fontes\n");
+    printf("2. Sair\n");
+    printf("Escolha uma opção: ");
+    scanf("%d", &option);
+
+
+    if (option == 1) {
+        
+    send_Mensage_to_server("list", sockfd, serverAddr );
+        
+
+
+    // Receber a lista de fontes de informação do servidor
+    memset(buffer, 0, sizeof(buffer));
+
+    ssize_t numBytes = recvfrom(sockfd, buffer, sizeof(buffer), 0, NULL, NULL);
+    if (numBytes < 0) {
+        perror("Erro na recepção da lista de fontes de informação");
+        exit(1);
+    }
+
+    
+
+    // Converter a lista recebida para a estrutura FonteInformacaoList
+    int n_fontes = sscanf(buffer, "%d", &fonte_informacao_list.count);
+
+    if (n_fontes < 0) {
+        perror("Erro ao analisar a lista de fontes de informação");
+        exit(1);
+    }
+
+    printf("Número de fontes: %d\n", fonte_informacao_list.count);
+
+    for (int i = 0; i < fonte_informacao_list.count; i++) {
+        memset(buffer, 0, sizeof(buffer));
+        numBytes = recvfrom(sockfd, buffer, sizeof(buffer), 0, NULL, NULL);
+        if (numBytes < 0) {
+            perror("Erro na recepção da lista de fontes de informação");
+            exit(1);
+        }
+
+        int fontes_id = sscanf(buffer, "%[^\n]", fonte_informacao_list.fonts[i].D);
+
+        if (fontes_id != 1) {
+            printf("Erro ao analisar a lista de fontes de informação\n");
+            exit(1);
+        }
+    }
+
+        // Imprimir a lista de fontes de informação
+        printFonteInformacaoList(&fonte_informacao_list);
+
+
+
+
+        printf("\nSUBMENU:\n");
+        printf("1. Info\n");
+        printf("2. Play\n");
+        printf("3. Stop C\n");
+        printf("Escolha uma opção: ");
+        scanf("%d", &option2);
+
+        switch (option2) {
+            case 1:
+                printf("Você escolheu a opção Info\n");
+                // Faça algo relacionado à opção A
+                strncpy(buffer, "info", sizeof(buffer));
+                break;
+            case 2:
+                printf("Você escolheu a opção Play\n");
+                // Faça algo relacionado à opção B
+                strncpy(buffer, "play", sizeof(buffer));
+                break;
+            case 3:
+                printf("Você escolheu a opção C\n");
+                strncpy(buffer, "stop", sizeof(buffer));
+                // Faça algo relacionado à opção C
+                break;
+            default:
+                printf("Opção inválida. Tente novamente.\n");
+                close(sockfd);
+                break;
+        }
+        // Envio da mensagem para o servidor
+        ssize_t numBytes3 = sendto(sockfd, buffer, strlen(buffer), 0, (struct sockaddr *)&serverAddr, sizeof(serverAddr));
+        if (numBytes3 < 0) {
+            perror("Erro no envio da mensagem para o servidor");
+            close(sockfd);
+            exit(1);
+        }
+
+
+
+    } else if (option == 2) {
+        printf("Encerrando o programa...\n");
+    } else {
+        printf("Opção inválida. Tente novamente.\n");
+    }
+
 
     // Envio de uma mensagem vazia para o servidor para solicitar a lista de fontes de informação
     ssize_t numBytes = sendto(sockfd, "", 0, 0, (struct sockaddr *)&serverAddr, sizeof(serverAddr));
@@ -77,6 +248,8 @@ int main() {
         exit(1);
     }
 
+
+
     printf("Numero de fontes %d\n", fonte_informacao_list.count);
 
     for (int i = 0; i < fonte_informacao_list.count; i++) {
@@ -93,7 +266,8 @@ int main() {
         printf("Erro ao analisar a lista de fontes de informação\n");
         exit(1);
     }
-}
+
+    }   
 
     // Imprimir a lista de fontes de informação
     printFonteInformacaoList(&fonte_informacao_list);
