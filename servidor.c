@@ -3,6 +3,7 @@
 #include <string.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <pthread.h>
 
 #define MAX_BUFFER_SIZE 1024
 #define FONT_SOURCE_PORT 8888
@@ -42,14 +43,14 @@ void addFonteInformacao(FonteInformacaoList* list, FonteInformacao* fonte) {
  for (int i = 0; i < list->count; i++) {
         if (strcmp(list->fonts[i].D, fonte->D) == 0) {
             // A fonte já existe na lista
-            printf("A fonte de informação '%s' já está na lista\n", fonte->D);
+            //printf("A fonte de informação '%s' já está na lista\n", fonte->D);
             return;
         }
     }
 
     if (list->count < MAX_FONTS) {
         list->fonts[list->count++] = *fonte;
-        printf("A fonte de informação '%s' foi adicionada à lista\n", fonte->D);
+        //printf("A fonte de informação '%s' foi adicionada à lista\n", fonte->D);
     } else {
         printf("A lista de fontes de informação está cheia\n");
     }
@@ -97,19 +98,15 @@ void printFonteInformacaoList(FonteInformacaoList* list) {
     printf("\n");
 }
 
-
-int main() {
-
-    
-    int sockfd;
-    struct sockaddr_in serverAddr, fontSourceAddr, clientAddr;
+void* fonteThread(void* arg) {
     char buffer[MAX_BUFFER_SIZE];
+    int sockfd;
+    struct sockaddr_in fontSourceAddr, clientAddr;
     FonteInformacao fonte_informacao;
-    FonteInformacaoList fonte_informacao_list;
-    fonte_informacao_list.count = 0;
-
-
-    // Criação do socket UDP para a fonte de informação
+  
+    FonteInformacaoList* fonte_informacao_list = (FonteInformacaoList*)arg;
+    fonte_informacao_list->count = 0;    
+    
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd < 0) {
         perror("Erro na criação do socket");
@@ -126,14 +123,55 @@ int main() {
         exit(1);
     }
 
-    // Associa o socket à porta da fonte de informação
     if (bind(sockfd, (struct sockaddr *)&fontSourceAddr, sizeof(fontSourceAddr)) < 0) {
         perror("Erro no bind");
         exit(1);
     }
 
 
-    // Criação do socket UDP para o cliente
+        while (1) {
+        memset(buffer, 0, sizeof(buffer));
+        socklen_t addrLen = sizeof(fontSourceAddr);
+        ssize_t numBytes = recvfrom(sockfd, buffer, sizeof(buffer), 0, (struct sockaddr*)&fontSourceAddr, &addrLen);
+        if (numBytes < 0) {
+            perror("Erro na recepção da mensagem da fonte de informação");
+            exit(1);
+        }
+
+
+        int result = sscanf(buffer, "%d %d %d %d %d %d %[^\n]", &fonte_informacao.M, &fonte_informacao.i,
+            &fonte_informacao.Vi, &fonte_informacao.F, &fonte_informacao.N, &fonte_informacao.P, fonte_informacao.D);
+
+
+        if (result == 7) {
+
+
+            addFonteInformacao(fonte_informacao_list, &fonte_informacao);
+            printFonteInformacaoList(fonte_informacao_list);
+            sendFonteInformacaoList(sockfd, &fontSourceAddr, fonte_informacao_list);
+        } else {
+            printf("Erro ao analisar o buffer\n");
+        }
+    }
+
+    return NULL;
+
+}
+
+void* Cliente_Thread(void* arg) {
+
+    struct sockaddr_in clientAddr, serverAddr;
+    char buffer[MAX_BUFFER_SIZE];
+    FonteInformacaoList* fonte_informacao_list = (FonteInformacaoList*)arg;
+    int sockfd;
+
+
+    if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+        perror("Erro na criação do socket");
+        exit(1);
+    }
+
+
     int clientSockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (clientSockfd < 0) {
         perror("Erro na criação do socket do cliente");
@@ -150,81 +188,103 @@ int main() {
         exit(1);
     }
 
+
     // Associa o socket à porta do cliente
     if (bind(clientSockfd, (struct sockaddr *)&serverAddr, sizeof(serverAddr)) < 0) {
         perror("Erro no bind do cliente");
         exit(1);
     }
 
+
+
     while (1) {
-        fd_set fds;
-        int maxfd;
-
-        // Limpa o conjunto de descritores de arquivo
-        FD_ZERO(&fds);
-
-        // Adiciona o socket da fonte de informação ao conjunto
-        FD_SET(sockfd, &fds);
-        maxfd = sockfd;
-
-        // Adiciona o socket do cliente ao conjunto
-        FD_SET(clientSockfd, &fds);
-        if (clientSockfd > maxfd) {
-            maxfd = clientSockfd;
-        }
-
-        // Aguarda atividade em algum dos sockets
-        if (select(maxfd + 1, &fds, NULL, NULL, NULL) < 0) {
-            perror("Erro no select");
+        memset(buffer, 0, sizeof(buffer));
+        socklen_t addrLen = sizeof(clientAddr);
+        ssize_t numBytes = recvfrom(clientSockfd, buffer, sizeof(buffer), 0, (struct sockaddr*)&clientAddr, &addrLen);
+        if (numBytes < 0) {
+            perror("Erro na recepção da mensagem do cliente");
             exit(1);
         }
 
-        printf("Servidor aguardando mensagens...\n");
+        if (strcmp(buffer, "list") == 0) {
+            printFonteInformacaoList(fonte_informacao_list);
 
-
-        // Verifica se há dados recebidos da fonte de informação
-        if (FD_ISSET(sockfd, &fds)) {            
-            memset(buffer, 0, sizeof(buffer));
-            socklen_t addrLen = sizeof(fontSourceAddr);
-            ssize_t numBytes = recvfrom(sockfd, buffer, sizeof(buffer), 0, (struct sockaddr *)&fontSourceAddr, &addrLen);
-            if (numBytes < 0) {
-                perror("Erro na recepção da mensagem da fonte de informação");
+            const char* okMessage = "OK";
+            ssize_t numBytesSent = sendto(clientSockfd, okMessage, strlen(okMessage), 0, (struct sockaddr*)&clientAddr, sizeof(clientAddr));
+            if (numBytesSent < 0) {
+                perror("Erro no envio da mensagem 'OK' para o cliente");
                 exit(1);
             }
-
-            int result = sscanf(buffer, "%d %d %d %d %d %d %[^\n]",&fonte_informacao.M, &fonte_informacao.i, &fonte_informacao.Vi, &fonte_informacao.F, &fonte_informacao.N, &fonte_informacao.P, fonte_informacao.D);
-
-            if (result == 7) {
-            // Imprimir informações da fonte
-                printFonteInformacao(&fonte_informacao);
-                addFonteInformacao(&fonte_informacao_list, &fonte_informacao);
-                printFonteInformacaoList(&fonte_informacao_list);
-                sendFonteInformacaoList(clientSockfd, &clientAddr, &fonte_informacao_list);
-            }else {
-                printf("Erro ao analisar o buffer\n");
-            }
+            sendFonteInformacaoList(sockfd, &clientAddr, fonte_informacao_list);
         }
 
-        // Verifica se há dados recebidos do cliente
-        if (FD_ISSET(clientSockfd, &fds)) {
-
-            socklen_t addrLen = sizeof(clientAddr);
-            int numBytes = recvfrom(clientSockfd, buffer, MAX_BUFFER_SIZE - 1, 0, (struct sockaddr *)&clientAddr, &addrLen);
-            if (numBytes < 0) {
-                perror("Erro na recepção da mensagem do cliente");
-                exit(1);
-            }
+        // Lógica para processar a mensagem do cliente
+        printf("Mensagem recebida do cliente: %s\n", buffer);
 
 
-
-            buffer[numBytes] = '\0';
-            printf("Mensagem do cliente: %s\n", buffer);
-        }
     }
+
+    return NULL;
+
+}
+
+
+int main() {
+
+    
+    int sockfd;
+    struct sockaddr_in serverAddr, fontSourceAddr, clientAddr;
+    int clientSockfd;
+    char buffer[MAX_BUFFER_SIZE];
+    FonteInformacao fonte_informacao;
+    
+    FonteInformacaoList* fonte_informacao_list = (FonteInformacaoList*)malloc(sizeof(FonteInformacaoList));    
+
+
+    if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+        perror("Erro na criação do socket");
+        exit(1);
+    }
+
+
+
+    memset(&serverAddr, 0, sizeof(serverAddr));
+
+    // Configuração do endereço do servidor
+    serverAddr.sin_family = AF_INET;
+    //serverAddr.sin_port = htons(FONT_SOURCE_PORT);
+    serverAddr.sin_addr.s_addr = htonl(INADDR_ANY);
+
+    // Associação do socket ao endereço do servidor
+    if (bind(sockfd, (struct sockaddr*)&serverAddr, sizeof(serverAddr)) < 0) {
+        perror("Erro no bind");
+        exit(1);
+    }
+
+    pthread_t fontSourceThread;
+    pthread_t clientThread;
+
+
+
+    if (pthread_create(&clientThread, NULL, Cliente_Thread, fonte_informacao_list) != 0) {
+        perror("Erro na criação da thread da fonte de informação");
+        exit(1);
+    }     
+
+    if (pthread_create(&fontSourceThread, NULL, fonteThread, fonte_informacao_list) != 0) {
+    perror("Erro na criação da thread da fonte de informação");
+    exit(1);
+    }
+
+    //pthread_join(fontSourceThread, NULL);
+    pthread_join(clientThread, NULL);
+
+
+    free(fonte_informacao_list);
 
     // Fecha os sockets
     close(sockfd);
-    close(clientSockfd);
+
 
 
 
