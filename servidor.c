@@ -10,6 +10,7 @@
 #define CLIENT_PORT 12345
 #define SERVER_IP "127.0.0.1"
 #define MAX_FONTS 100
+#define MAX_SUBSCRIPTIONS 100
 
 typedef struct{
     char D[100];  // Identificador da fonte
@@ -26,6 +27,20 @@ typedef struct {
     int count;
 } FonteInformacaoList;
 
+typedef struct {
+    char fonte_name[250];
+    struct sockaddr_in* clientAddr;
+} Subscritor;
+
+typedef struct {
+    Subscritor subscritores[MAX_FONTS];
+    int count;
+} SubscritorList;
+
+SubscritorList* subscritor_list;
+
+ 
+
 
 void printFonteInformacao(FonteInformacao* fonte) {
     printf("D: %s\n", fonte->D);
@@ -38,6 +53,24 @@ void printFonteInformacao(FonteInformacao* fonte) {
     printf("\n");
 }
 
+SubscritorList* createSubscritorList() {
+    SubscritorList* list = (SubscritorList*)malloc(sizeof(SubscritorList));
+    list->count = 0;
+    
+    for (int i = 0; i < MAX_FONTS; i++) {
+        strcpy(list->subscritores[i].fonte_name, "");
+        list->subscritores[i].clientAddr = NULL;
+    }
+    
+    return list;
+}
+
+
+void addSubscritor(SubscritorList* list, char* fonte_name, struct sockaddr_in* clientAddr) {
+    strcpy(list->subscritores[list->count].fonte_name, fonte_name);
+    list->subscritores[list->count].clientAddr = clientAddr;
+    list->count++;
+}
 
 void addFonteInformacao(FonteInformacaoList* list, FonteInformacao* fonte) {
  for (int i = 0; i < list->count; i++) {
@@ -90,12 +123,109 @@ void sendFonteInformacaoList(int sockfd, struct sockaddr_in* clientAddr, FonteIn
     }
 }
 
+void sendFonteInfo(char *fonte_id, int sockfd, struct sockaddr_in* clientAddr, FonteInformacaoList* list) {
+    char buffer[MAX_BUFFER_SIZE];
+
+    printf("Fonte_Id: %s\n", fonte_id);
+
+    for (int i = 0; i < list->count; i++) {
+        FonteInformacao* fonte = &list->fonts[i];
+
+        if (strcmp(fonte_id, fonte->D) == 0) {
+            printf("entras aqui?\n");
+            // A fonte corresponde à fonte_id solicitada
+
+            int result = snprintf(buffer, MAX_BUFFER_SIZE, "D: %s\nF: %d\nN: %d\nM: %d\n",
+                fonte->D, fonte->F, fonte->N, fonte->M);
+
+            if (result < 0 || result >= MAX_BUFFER_SIZE) {
+                printf("Erro ao criar o buffer da fonte de informação\n");
+                return;
+            }
+
+            ssize_t numBytes = sendto(sockfd, buffer, result, 0, (struct sockaddr*)clientAddr, sizeof(*clientAddr));
+            if (numBytes < 0) {
+                perror("Erro no envio da fonte de informação para o cliente");
+                exit(1);
+            }
+
+            return; // Encerra a função após enviar a fonte encontrada
+        }
+    }
+
+    // A fonte_id solicitada não foi encontrada
+    const char* notFoundMessage = "Fonte de informação não encontrada";
+    ssize_t numBytesSent = sendto(sockfd, notFoundMessage, strlen(notFoundMessage), 0, (struct sockaddr*)clientAddr, sizeof(*clientAddr));
+    if (numBytesSent < 0) {
+        perror("Erro no envio da mensagem 'Fonte de informação não encontrada' para o cliente");
+        exit(1);
+    }
+}
+
+void Play_fonte(char *fonte_id, int sockfd, struct sockaddr_in* clientAddr, FonteInformacaoList* list) {
+    char buffer[MAX_BUFFER_SIZE];
+
+    printf("Fonte_Id: %s\n", fonte_id);
+
+    for (int i = 0; i < list->count; i++) {
+        FonteInformacao* fonte = &list->fonts[i];
+
+        if (strcmp(fonte_id, fonte->D) == 0) {
+            // A fonte corresponde à fonte_id solicitada
+
+            int result = snprintf(buffer, MAX_BUFFER_SIZE, "i: %d\nVi: %d\n", fonte->i, fonte->Vi);
+
+            if (result < 0 || result >= MAX_BUFFER_SIZE) {
+                printf("Erro ao criar o buffer da fonte de informação\n");
+                return;
+            }
+
+            ssize_t numBytes = sendto(sockfd, buffer, result, 0, (struct sockaddr*)clientAddr, sizeof(*clientAddr));
+            if (numBytes < 0) {
+                perror("Erro no envio da fonte de informação para o cliente");
+                exit(1);
+            }
+
+            return; // Encerra a função após enviar a fonte encontrada
+        }
+    }
+
+    // A fonte_id solicitada não foi encontrada
+    const char* notFoundMessage = "Fonte de informação não encontrada";
+    ssize_t numBytesSent = sendto(sockfd, notFoundMessage, strlen(notFoundMessage), 0, (struct sockaddr*)clientAddr, sizeof(*clientAddr));
+    if (numBytesSent < 0) {
+        perror("Erro no envio da mensagem 'Fonte de informação não encontrada' para o cliente");
+        exit(1);
+    }
+}
+
 void printFonteInformacaoList(FonteInformacaoList* list) {
     printf("Fontes disponíveis:\n");
     for (int i = 0; i < list->count; i++) {
         printf("- %s\n", list->fonts[i].D);
     }
     printf("\n");
+}
+
+void showSubscritorList(SubscritorList* list) {
+    printf("Subscritores:\n");
+    
+    for (int i = 0; i < list->count; i++) {
+        printf("Subscritor %d:\n", i + 1);
+        printf("Fonte: %s\n", list->subscritores[i].fonte_name);
+        
+        if (list->subscritores[i].clientAddr != NULL) {
+            struct sockaddr_in* addr = list->subscritores[i].clientAddr;
+            char ip[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &(addr->sin_addr), ip, INET_ADDRSTRLEN);
+            int port = ntohs(addr->sin_port);
+            printf("Endereço: %s:%d\n", ip, port);
+        } else {
+            printf("Endereço: N/A\n");
+        }
+        
+        printf("\n");
+    }
 }
 
 void* fonteThread(void* arg) {
@@ -140,15 +270,44 @@ void* fonteThread(void* arg) {
 
 
         int result = sscanf(buffer, "%d %d %d %d %d %d %[^\n]", &fonte_informacao.M, &fonte_informacao.i,
-            &fonte_informacao.Vi, &fonte_informacao.F, &fonte_informacao.N, &fonte_informacao.P, fonte_informacao.D);
+        &fonte_informacao.Vi, &fonte_informacao.F, &fonte_informacao.N, &fonte_informacao.P, fonte_informacao.D);
 
 
         if (result == 7) {
 
-
             addFonteInformacao(fonte_informacao_list, &fonte_informacao);
-            printFonteInformacaoList(fonte_informacao_list);
-            sendFonteInformacaoList(sockfd, &fontSourceAddr, fonte_informacao_list);
+
+            for (int i = 0; i < subscritor_list->count; i++) {
+                Subscritor* subscritor = &subscritor_list->subscritores[i];
+                if (strcmp(subscritor->fonte_name, fonte_informacao.D) == 0) {
+                    // Criar um novo datagrama UDP com os parâmetros do datagrama recebido
+                    char newData[MAX_BUFFER_SIZE];
+                    snprintf(newData, sizeof(newData), "%d %d %d %d %d %d %s", fonte_informacao.M, fonte_informacao.i,
+                        fonte_informacao.Vi, fonte_informacao.F, fonte_informacao.N, fonte_informacao.P, fonte_informacao.D);
+
+                    // Enviar o novo datagrama para o cliente
+                    int clientSockfd = socket(AF_INET, SOCK_DGRAM, 0);
+                    if (clientSockfd < 0) {
+                        perror("Erro na criação do socket para o cliente");
+                        exit(1);
+                    }
+
+                    memset(&clientAddr, 0, sizeof(clientAddr));
+                    clientAddr.sin_family = AF_INET;
+                    clientAddr.sin_port = htons(CLIENT_PORT);
+                    
+
+                    ssize_t numSentBytes = sendto(clientSockfd, newData, strlen(newData), 0, (struct sockaddr*)&clientAddr, sizeof(clientAddr));
+                    printf("numSentBytes na fonte = %ld\n", numSentBytes);
+                    if (numSentBytes < 0) {
+                        perror("Erro no envio do datagrama para o cliente");
+                        exit(1);
+                    }
+
+                    close(clientSockfd);
+                }
+            }
+
         } else {
             printf("Erro ao analisar o buffer\n");
         }
@@ -158,11 +317,14 @@ void* fonteThread(void* arg) {
 
 }
 
+
+
 void* Cliente_Thread(void* arg) {
 
     struct sockaddr_in clientAddr, serverAddr;
     char buffer[MAX_BUFFER_SIZE];
     FonteInformacaoList* fonte_informacao_list = (FonteInformacaoList*)arg;
+    subscritor_list = createSubscritorList();
     int sockfd;
 
 
@@ -196,7 +358,6 @@ void* Cliente_Thread(void* arg) {
     }
 
 
-
     while (1) {
         memset(buffer, 0, sizeof(buffer));
         socklen_t addrLen = sizeof(clientAddr);
@@ -205,6 +366,7 @@ void* Cliente_Thread(void* arg) {
             perror("Erro na recepção da mensagem do cliente");
             exit(1);
         }
+
 
         if (strcmp(buffer, "list") == 0) {
             printFonteInformacaoList(fonte_informacao_list);
@@ -216,13 +378,36 @@ void* Cliente_Thread(void* arg) {
                 exit(1);
             }
             sendFonteInformacaoList(sockfd, &clientAddr, fonte_informacao_list);
+            
         }
 
+        else if (strncmp(buffer, "info", 4) == 0) {
+            
+            char nome_fonte[MAX_BUFFER_SIZE];
+            sscanf(buffer + 5, "%s", nome_fonte); 
+
+            sendFonteInfo(nome_fonte, sockfd, &clientAddr, fonte_informacao_list);
+
+        }else if (strncmp(buffer, "play", 4) == 0) {
+            
+            char nome_fonte[MAX_BUFFER_SIZE];
+            sscanf(buffer + 5, "%s", nome_fonte);
+
+            addSubscritor(subscritor_list,nome_fonte,&clientAddr);
+
+            showSubscritorList(subscritor_list);
+
+            Play_fonte(nome_fonte, sockfd, &clientAddr, fonte_informacao_list);
+        }
+
+
+
         // Lógica para processar a mensagem do cliente
-        printf("Mensagem recebida do cliente: %s\n", buffer);
+        printf("Mensagem enviada para o cliente: %s\n", buffer);
 
 
     }
+    free(subscritor_list);
 
     return NULL;
 
@@ -237,8 +422,10 @@ int main() {
     int clientSockfd;
     char buffer[MAX_BUFFER_SIZE];
     FonteInformacao fonte_informacao;
-    
     FonteInformacaoList* fonte_informacao_list = (FonteInformacaoList*)malloc(sizeof(FonteInformacaoList));    
+    
+   
+    
 
 
     if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
@@ -280,6 +467,7 @@ int main() {
     pthread_join(clientThread, NULL);
 
 
+    
     free(fonte_informacao_list);
 
     // Fecha os sockets
